@@ -81,6 +81,7 @@ export default function serialize (
         return executeCallback(null, documentString)
       case JSONLDContentType:
         sz.setFlags('si') // use turtle parameters
+        console.log(sz.statementsToLd(newSts))
         documentString = sz.statementsToJsonld(newSts) // convert via turtle
         return executeCallback(null, documentString)
       case NQuadsContentType:

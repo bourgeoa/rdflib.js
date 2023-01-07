@@ -2,6 +2,45 @@ import {expect} from 'chai'
 import {graph, Literal, serialize, st, sym, lit} from '../../src/index';
 import parse from '../../src/parse'
 
+describe.skip('serialize text/turtle', () => {
+  describe('doubles', () => {
+    it('literal from double value is taken as-is', () => {
+        const doc = sym("https://doc.example");
+        const statement1 = st(
+            sym('https://subject2.example'),
+            sym('https://predicate.example'),
+            Literal.fromNumber(0.123),
+            doc
+          )
+        const statement2 = st(
+            sym('https://subject2.example'),
+            sym('https://predicate.example'),
+            Literal.fromNumber(0.124),
+            doc
+          )
+          const statement3 = st(
+            sym('https://subject2.example'),
+            sym('https://predicate.example'),
+            Literal.fromNumber(0.125),
+            doc
+          )
+        const kb = graph();
+        kb.add(statement1)
+        kb.add(statement2)
+        kb.add(statement3)
+        const result = serialize(doc, kb, null, 'text/turtle')
+        /* expect(result).to.equal(`@prefix : <#>.
+
+<https://subject.example> <https://predicate.example> 0.123 .
+
+`) */
+console.log(result)        
+console.log(serialize(doc, kb, null, 'application/ld+json'))
+    })
+  })
+})
+
+      
 describe('serialize text/turtle', () => {
     describe('doubles', () => {
         it('literal from double value is taken as-is', () => {
@@ -20,6 +59,7 @@ describe('serialize text/turtle', () => {
 <https://subject.example> <https://predicate.example> 0.123 .
 
 `)
+        console.log(serialize(doc, kb, null, 'application/ld+json'))
         });
 
         it('literal from number ending with .0 serializes to integer', () => {
@@ -38,6 +78,7 @@ describe('serialize text/turtle', () => {
 <https://subject.example> <https://predicate.example> 123 .
 
 `)
+        console.log(serialize(doc, kb, null, 'application/ld+json'))
         });
 
         it('appends e0 for strings typed as xsd:double', () => {
@@ -56,6 +97,7 @@ describe('serialize text/turtle', () => {
 <https://subject.example> <https://predicate.example> 0.123e0 .
 
 `)
+        console.log(serialize(doc, kb, null, 'application/ld+json'))
         });
 
         it('adds .0 and e0 for strings containing an integer', () => {
@@ -74,6 +116,7 @@ describe('serialize text/turtle', () => {
 <https://subject.example> <https://predicate.example> 123.0e0 .
 
 `)
+        console.log(serialize(doc, kb, null, 'application/ld+json'))
         });
 
         it('"e" notation is serialized as-is', () => {
@@ -92,6 +135,7 @@ describe('serialize text/turtle', () => {
 <https://subject.example> <https://predicate.example> 0.123e2 .
 
 `)
+        console.log(serialize(doc, kb, null, 'application/ld+json'))
         });
 
         it('"e" notation with negative exponent is serialized as-is', () => {
@@ -110,6 +154,7 @@ describe('serialize text/turtle', () => {
 <https://subject.example> <https://predicate.example> 0.123e-2 .
 
 `)
+        console.log(serialize(doc, kb, null, 'application/ld+json'))
         });
 
         it('capital "E" is serialized as-is', () => {
@@ -128,6 +173,7 @@ describe('serialize text/turtle', () => {
 <https://subject.example> <https://predicate.example> 0.123E2 .
 
 `)
+        console.log(serialize(doc, kb, null, 'application/ld+json'))
         });
 
         it('strings without dot but e notation are serialized as-is', () => {
@@ -146,6 +192,7 @@ describe('serialize text/turtle', () => {
 <https://subject.example> <https://predicate.example> 123e2 .
 
 `)
+        console.log(serialize(doc, kb, null, 'application/ld+json'))
         });
 
         it('strings without dot but e notation with negative exponent are serialized as-is', () => {
@@ -164,7 +211,8 @@ describe('serialize text/turtle', () => {
 <https://subject.example> <https://predicate.example> 123e-2 .
 
 `)
-        });
+      console.log(serialize(doc, kb, null, 'application/ld+json'))
+      });
 
 
 
@@ -187,8 +235,8 @@ describe('serialize text/turtle', () => {
 example:subject schema:predicate 123e-2 .
 
 `)
-      });
-
+        console.log(serialize(doc, kb, null, 'application/ld+json'))
+        });
 
       it('use setPrefix to override a graph prefix', () => {
         const doc = sym("https://doc.example");
@@ -211,6 +259,7 @@ example:subject schema:predicate 123e-2 .
 example2:subject schema:predicate 123e-2 .
 
 `)
+      console.log(serialize(doc, kb, null, 'application/ld+json'))
       });
 
       it('use setPrefix to override a default prefix', () => {
@@ -235,6 +284,7 @@ example2:subject schema:predicate 123e-2 .
 example:subject schema2:predicate 123e-2 .
 
 `)
+      console.log(serialize(doc, kb, null, 'application/ld+json'))
       });
 
 
@@ -268,6 +318,7 @@ example:subject schema2:predicate 123e-2 .
 example:subject schema:predicate obj: .
 
 `)
+    console.log(serialize(doc, kb, null, 'application/ld+json'))
     });
   });
 })

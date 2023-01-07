@@ -1033,7 +1033,7 @@ export class Serializer {
     const jsonldObj = ttl2jsonld.parse(turtleDoc)
     const context = jsonldObj['@context']
     const iri = /^[a-z](.*?):(.+?)/g // begin with a letter, contain : followed by at least one character
-    const keys = Object.keys(context).filter(key => !context[key].match(iri)) // .includes('http'))
+    const keys = Object.keys(context).filter(key => !context[key].match(iri))
 
     findId(jsonldObj)
     keys.map(key => { delete jsonldObj['@context'][key] })
@@ -1042,6 +1042,460 @@ export class Serializer {
     return JSON.stringify(jsonldObj, null, 2)
   }
 
+  statementsToLd(sts) {
+    var indent = 4
+    var width = 80
+    var kb = this.store
+    // A URI Map alows us to put the type statemnts at the top.
+    var uriMap = {'http://www.w3.org/1999/02/22-rdf-syntax-ns#type': 'aaa:00'}
+    var SPO = function (x, y) { // Do limited canonicalization of bnodes
+      return Util.heavyCompareSPO(x, y, kb, uriMap)
+    }
+    sts.sort(SPO)
+
+    if (this.base && !this.defaultNamespace){
+      this.defaultNamespace = this.base + '#'
+    }
+
+    var predMap = {}
+    if (this.flags.indexOf('s') < 0) {
+      predMap['http://www.w3.org/2002/07/owl#sameAs'] = '='
+    }
+    if (this.flags.indexOf('t') < 0) {
+      predMap['http://www.w3.org/1999/02/22-rdf-syntax-ns#type'] = 'a'
+    }
+    if (this.flags.indexOf('i') < 0) {
+      predMap['http://www.w3.org/2000/10/swap/log#implies'] = '=>'
+    }
+    // //////////////////////// Arrange the bits of text
+
+    /* var spaces = function (n) {
+      var s = ''
+      for (var i = 0; i < n; i++) s += ' '
+      return s
+    } */
+
+    /* var treeToLine = function (tree) {
+      var str = ''
+      for (var i = 0; i < tree.length; i++) {
+        var branch = tree[i]
+        var s2 = (typeof branch === 'string') ? branch : treeToLine(branch)
+        // Note the space before the dot in case statement ends with 123 or colon. which is in fact allowed but be conservative.
+        if (i !== 0) {
+          var ch = str.slice(-1) || ' '
+          if (s2 === ',' || s2 === ';') {
+            // no gap
+          } else if (s2 === '.' && !('0123456789.:'.includes(ch))) { // no gap except after number and colon
+            // no gap
+          } else {
+            str += ' ' // separate from previous token
+          }
+        }
+        str += s2
+      }
+      return str
+    } */
+
+    // Convert a nested tree of lists and strings to a string
+    /* var treeToString = function (tree, level) {
+      var str = ''
+      var lastLength = 100000
+      if (level === undefined) level = -1
+      for (var i = 0; i < tree.length; i++) {
+        var branch = tree[i]
+        if (typeof branch !== 'string') {
+          var substr = treeToString(branch, level + 1)
+          if (
+            substr.length < 10 * (width - indent * level) &&
+              substr.indexOf('"""') < 0) { // Don't mess up multiline strings
+            var line = treeToLine(branch)
+            if (line.length < (width - indent * level)) {
+              branch = line //   Note! treat as string below
+              substr = ''
+            }
+          }
+          if (substr) lastLength = 10000
+          str += substr
+        }
+        if (typeof branch === 'string') {
+          if (branch.length === 1 && str.slice(-1) === '\n') {
+            if (',.;'.indexOf(branch) >= 0) {
+              str = str.slice(0, -1)
+              // be conservative and ensure a whitespace between some chars and a final dot, as in treeToLine above
+              if (branch == '.' && '0123456789.:'.includes(str.charAt(str.length-1))) {
+                str += ' '
+                lastLength += 1
+              }
+              str += branch + '\n' //  slip punct'n on end
+              lastLength += 1
+              continue
+            }
+          }
+          if (lastLength < (indent * level + 4) ||  // if new line not necessary
+            lastLength + branch.length + 1 < width && ';.'.indexOf(str[str.length - 2]) < 0) { // or the string fits on last line
+            str = str.slice(0, -1) + ' ' + branch + '\n' // then continue on this line
+            lastLength += branch.length + 1
+          } else {
+            let line = spaces(indent * level) + branch
+            str += line + '\n'
+            lastLength = line.length
+            if (level < 0) {
+              str += '\n' // extra blank line
+              lastLength = 100000 // don't touch
+            }
+          }
+        }
+      }
+      return str
+    } */
+
+    // //////////////////////////////////////////// Structure for N3
+    // Convert a set of statements into a nested tree of lists and strings
+    function statementListToTreeMethod (statements) {
+      var stats = this.rootSubjects(statements)
+      var roots = stats.roots
+      var results = {}
+      for (var i = 0; i < roots.length; i++) {
+        var root = roots[i]
+        console.log('statementList 1 ' + ' ' + JSON.stringify(results) + ' ' + JSON.stringify(subjectTree(root, stats)))
+        let result = {}
+        if (Object.keys(results).length) {
+          if (!results["@graph"]) {
+            result = { "@graph": [results] }
+            results = result
+          }
+          result = results["@graph"].concat(subjectTree(root, stats))
+          result = { "@graph": result }
+        } else { result = subjectTree(root, stats) }
+        // result = Object.assign({}, results, subjectTree(root, stats))
+        console.log('statementList 2 ' + ' ' + JSON.stringify(result))
+        results = result
+      }
+      console.log('statementsListToTree ' + JSON.stringify(results))
+      return results
+    }
+    var statementListToTree = statementListToTreeMethod.bind(this)
+
+    const nsURI = (pred) => {
+      // console.log('pred ' + pred)
+      let index = (pred.lastIndexOf('#') === -1) ? 0 : 1
+      const uri = pred.slice(0, pred.lastIndexOf('#') + index)
+      // console.log('URI ' + !!this.prefixes[uri] + ' ' + pred)
+      return !!this.prefixes[uri] ? pred.replace( uri, this.prefixes[uri] + ':') : pred
+    }
+
+    // The tree for a subject
+    function subjectTree (subject, stats) {
+      if (subject.termType === 'BlankNode' && !stats.incoming[subject]) {
+        return objectTree(subject, stats, true) // .concat(['.']) // Anonymous bnode subject
+      }
+      // return [ termToJsonld(subject, stats) ].concat([propertyTree(subject, stats)]).concat(['.'])
+      // console.log('subject01 ' + JSON.stringify(termToJsonld(subject, stats)))
+      // console.log('subject01bis ' + !!termToJsonld(subject, stats))
+      // console.log('subject02 ' + JSON.stringify(propertyTree(subject, stats)))
+      let res = {}
+      if (!!termToJsonld(subject, stats)) res = Object.assign({}, termToJsonld(subject, stats), propertyTree(subject, stats))
+      else res = propertyTree(subject, stats)
+      // console.log('subject1 ' + res["@id"] + ' ' + JSON.stringify(res))
+      // console.log(subject)
+      Object.assign(res, { "@id": nsURI(subject.value) }) //  alain problem ??? this.symbolToJsonld(subject.value) }) // nsURI(subject.value) })
+      // console.log('subject2 ' + JSON.stringify(res))
+      return res
+    }
+    // The property tree for a single subject or anonymous node
+    function propertyTreeMethod (subject, stats) {
+      var results = {} // []
+      var lastPred = null
+      // subject = this.toStr(subject)
+      var sts = stats.subjects[this.toStr(subject)] || [] // relevant statements
+      // console.log(sts)
+      if (typeof sts === 'undefined') {
+        throw new Error('Cant find statements for ' + subject)
+      }
+
+      var objects = {} //
+      for (var i = 0; i < sts.length; i++) {
+        var st = sts[i]
+        if (st.predicate.uri === lastPred) {
+          // console.log('predicate ' + st.predicate.uri + ' ' + nsURI(st.predicate.uri))
+          console.log('objects ' + ' ' + lastPred + ' ' + JSON.stringify(objects))
+          // console.log(this.prefixes + ' ' + lastPred.slice(0, lastPred.lastIndexOf('#')+1))
+          // console.log(this.prefixes[lastPred.slice(0, lastPred.lastIndexOf('#')+1)])
+          // objects // .push(',')
+          objects // = { [nsURI(lastPred)]: objects }
+        } else {
+          if (lastPred) {
+            // console.log('results-0 ' + JSON.stringify(results) + ' ' + JSON.stringify(objects))
+            // console.log(lastPred + ' ' + nsURI(lastPred) + ' ' + st.predicate.uri)
+            // results = results.concat([objects]) // .concat([';'])
+            if (objects[results["@id"]]) results = objects
+            else Object.assign(results, objects)
+            // Object.assign(results, objects)
+            console.log('results-1 ' + ' ' + JSON.stringify(results))
+            objects = {} // []
+          }
+          // results.push(predMap[st.predicate.uri]
+          // console.log('results0 ' + predMap[st.predicate.uri])
+          // console.log(('results1 ' + JSON.stringify(results) + ' ' + JSON.stringify(termToJsonld(st.predicate, stats))))
+          const result = !!predMap[st.predicate.uri] // results.push(predMap[st.predicate.uri]
+          ? predMap[st.predicate.uri] : termToJsonld(st.predicate, stats)
+          if (result[results["@id"]]) results = result
+          // else Object.assign(results, result)
+          // Object.assign(results, )
+          console.log(('results2 ' + JSON.stringify(results)))
+        }
+        lastPred = st.predicate.uri
+        // console.log('objects2 ' + JSON.stringify(objects) + ' ' + JSON.stringify(objectTree(st.object, stats)))
+        // [objects].push(objectTree(st.object, stats))
+        // console.log('objects31 ' + lastPred + ' ' + nsURI(lastPred) + ' ' + JSON.stringify(objects[nsURI(lastPred)]))
+        // console.log('lastPred ' + lastPred + ' ' + nsURI(lastPred) + ' ' + JSON.stringify(objects[nsURI(lastPred)]))
+        console.log('objects objectTree ' + JSON.stringify(objects) + ' ' + JSON.stringify(objectTree(st.object, stats)))
+        // console.log('keys ' + Object.keys(objects) + ' ' + Object.keys(objectTree(st.object, stats)))
+        // console.log('length ' + Object.keys(objects).length)
+        let object = {}
+        if (Object.keys(objects).length) {
+          // console.log('objects31 ' + nsURI(lastPred) +' ' + JSON.stringify(objects))
+          object[nsURI(lastPred)] = [objects[nsURI(lastPred)]].concat(objectTree(st.object, stats)).flat()
+        } else { object[nsURI(lastPred)] = objectTree(st.object, stats) }
+        objects = object
+        console.log('objects32 ' + nsURI(lastPred) +' ' + JSON.stringify(objects))
+        // Object.assign(objects, objectTree(st.object, stats))
+      }
+      // console.log(subject)
+      // Object.assign(results, { "@id": nsURI(subject.value) })
+      let result = {}
+      console.log('results3 ' + JSON.stringify(results) + ' ' + JSON.stringify(objects ))
+      // console.log(Object.keys(results).length)
+      if (Object.keys(results).length) { // !!results[nsURI(lastPred)]) { // objects[nsURI(lastPred)] === results[nsURI(lastPred)]) {
+        result = Object.assign(results, { [nsURI(lastPred)]: objects }) // [results].concat({ [nsURI(lastPred)]: objects })
+        results = result
+        // results = { [nsURI(lastPred)]: result }
+        // result = Object.assign(results, objects)
+        console.log('result 3 ' + result + ' ' + JSON.stringify(results))
+      } else { results = objects }
+      // result = Object.assign(results, objects) // { [results["@id"]]: objects })
+      console.log('results4 ' + JSON.stringify(results))
+      return results // Object.assign(results, { [results["@id"]]: objects })
+    }
+
+    var propertyTree = propertyTreeMethod.bind(this)
+
+    function objectTreeMethod(obj, stats, force) { // alain ?
+      if (obj.termType === 'BlankNode' &&
+        (force || stats.rootsHash[obj.toNT()] === undefined)) {// if not a root
+        if (stats.subjects[this.toStr(obj)]) {
+          console.log('propertyTree ' + JSON.stringify(['[', propertyTree(obj, stats), ']']))
+          return ['[', propertyTree(obj, stats), ']']
+        } else {
+          return '[]'
+        }
+      }
+      // console.log('termToJsonld ' + JSON.stringify(termToJsonld(obj, stats)))
+      return termToJsonld(obj, stats)
+    }
+
+    var objectTree = objectTreeMethod.bind(this)
+
+    function termToJsonldMethod(expr, stats) { //
+      var i, res
+      switch (expr.termType) {
+        case 'Graph':
+          res = [] // ['{']
+          res = res.concat(statementListToTree(expr.statements))
+          // Object.assign(res, statementListToTree(expr.statements))
+          console.log('res ' + JSON.stringify(res))
+          return res // .concat(['}'])
+
+        case 'Collection':
+          res = ['(']
+          for (i = 0; i < expr.elements.length; i++) {
+            res.push([ objectTree(expr.elements[i], stats) ])
+          }
+          res.push(')')
+          return { "@list": res }
+
+        default:
+          return this.atomicTermToJsonld(expr)
+      }
+    }
+    Serializer.prototype.termToJsonld = termToJsonld
+    var termToJsonld = termToJsonldMethod.bind(this)
+
+    function prefixDirectivesMethod () {
+      var str = {} // ''
+      /* if (this.defaultNamespace) {
+        str += '@prefix : ' + this.explicitURI(this.defaultNamespace) + '.\n'
+      } */
+      for (var ns in this.prefixes) {
+        if (!this.prefixes.hasOwnProperty(ns)) continue
+        if (!this.namespacesUsed[ns]) continue
+        /* str += '@prefix ' + this.prefixes[ns] + ': ' + this.explicitURI(ns) +
+          '.\n' */
+        Object.assign(str, { [this.prefixes[ns]]: this.explicitURI(ns).split('<').pop().split('>')[0] })
+      }
+      return { "@context": str } // + '\n'
+    }
+    var prefixDirectives = prefixDirectivesMethod.bind(this)
+    // Body of statementsToN3:
+    var tree = statementListToTree(sts)
+    const jsonld = Object.assign(prefixDirectives(), tree)
+
+    return JSON.stringify(jsonld, null, 2)
+  }
+  // //////////////////////////////////////////// Atomic Terms
+  //  Deal with term level things and nesting with no bnode structure
+  //  Deal with term level things and nesting with no bnode structure
+  atomicTermToJsonld (expr, stats) {
+    // console.log('value-type ' + JSON.stringify(expr))
+    switch (expr.termType) {
+      case 'BlankNode':
+      case 'Variable':
+        return expr.toNT() // alain ???
+      case 'Literal':
+        var val = expr.value
+        if (typeof val !== 'string') {
+          throw new TypeError('Value of RDF literal node must be a string')
+        }
+        // var val = expr.value.toString() // should be a string already
+        if (expr.datatype && this.flags.indexOf('x') < 0) { // Supress native numbers
+          switch (expr.datatype.uri) {
+
+            case 'http://www.w3.org/2001/XMLSchema#integer':
+              return { "@value": val, "@type": "http://www.w3.org/2001/XMLSchema#integer" }
+            case 'http://www.w3.org/2001/XMLSchema#decimal': // In Turtle, must have dot
+              if (val.indexOf('.') < 0) val += '.0'
+              return { "@value": val, "@type": "http://www.w3.org/2001/XMLSchema#decimal" }
+
+            case 'http://www.w3.org/2001/XMLSchema#double': {
+              // Must force use of 'e'
+              const eNotation = val.toLowerCase().indexOf('e') > 0;
+              if (val.indexOf('.') < 0 && !eNotation) val += '.0'
+              if (!eNotation) val += 'e0'
+              return { "@value": val, "@type": "http://www.w3.org/2001/XMLSchema#double" }
+            }
+
+            case 'http://www.w3.org/2001/XMLSchema#boolean':
+              return expr.value === '1' ? { "@value": "true", "@type": "http://www.w3.org/2001/XMLSchema#boolean" } : { "@value": "false", "@type": "http://www.w3.org/2001/XMLSchema#boolean" }
+          }
+        }
+        console.log('expr.value ' + JSON.stringify(expr))
+        var str = '' // this.stringToJsonld(expr.value)
+        if (expr.language) {
+          str = expr.language
+        } else if (!expr.datatype.equals(this.xsd.string)) {
+          str = this.atomicTermToJsonld(expr.datatype, stats)["@id"]
+        }
+        console.log('@type ' + str)
+        return { "@value": this.stringToJsonld(expr.value), "@type": str }
+      case 'NamedNode':
+        return { "@id": this.symbolToJsonld(expr) }
+      case 'DefaultGraph':
+        return '';
+      default:
+        throw new Error('Internal: atomicTermToJsonld cannot handle ' + expr + ' of termType: ' + expr.termType)
+    }
+  }
+
+  //  stringToJsonld:  String escaping for N3
+
+  validPrefix = new RegExp(/^[a-zA-Z][a-zA-Z0-9]*$/)
+
+  forbidden1 = new RegExp(/[\\"\b\f\r\v\t\n\u0080-\uffff]/gm)
+  forbidden3 = new RegExp(/[\\"\b\f\r\v\u0080-\uffff]/gm)
+  stringToJsonld(str, flags) {
+    if (!flags) flags = 'e'
+    var res = ''
+    var i, j, k
+    var delim
+    var forbidden
+    if (str.length > 20 && // Long enough to make sense
+        str.slice(-1) !== '"' && // corner case'
+        flags.indexOf('n') < 0 && // Force single line
+        (str.indexOf('\n') > 0 || str.indexOf('"') > 0)) {
+      delim = '"""'
+      forbidden = this.forbidden3
+    } else {
+      delim = '"'
+      forbidden = this.forbidden1
+    }
+    for (i = 0; i < str.length;) {
+      forbidden.lastIndex = 0
+      var m = forbidden.exec(str.slice(i))
+      if (m == null) break
+      j = i + forbidden.lastIndex - 1
+      res += str.slice(i, j)
+      var ch = str[j]
+      if (ch === '"' && delim === '"""' && str.slice(j, j + 3) !== '"""') {
+        res += ch
+      } else {
+        k = '\b\f\r\t\v\n\\"'.indexOf(ch) // No escaping of bell (7)?
+        if (k >= 0) {
+          res += '\\' + 'bfrtvn\\"'[k]
+        } else {
+          if (flags.indexOf('e') >= 0) { // Unicode escaping in strings not unix style
+            res += '\\u' + ('000' +
+              ch.charCodeAt(0).toString(16).toLowerCase()).slice(-4)
+          } else { // no 'e' flag
+            res += ch
+          }
+        }
+      }
+      i = j + 1
+    }
+    return delim + res + str.slice(i) + delim
+  }
+  //  A single symbol, either in  <> or namespace notation
+
+  symbolToJsonld (x) { // c.f. symbolString() in notation3.py
+    var uri = x.uri || x  // alain ????
+    var j = uri.indexOf('#')
+    if (j < 0 && this.flags.indexOf('/') < 0) {
+      j = uri.lastIndexOf('/')
+    }
+    if (j >= 0 && this.flags.indexOf('p') < 0 &&
+      // Can split at namespace but only if http[s]: URI or file: or ws[s] (why not others?)
+      (uri.indexOf('http') === 0 || uri.indexOf('ws') === 0 || uri.indexOf('file') === 0)) {
+      var canSplit = true
+      for (var k = j + 1; k < uri.length; k++) {
+        if (this._notNameChars.indexOf(uri[k]) >= 0) {
+          canSplit = false
+          break
+        }
+      }
+/*
+      if (uri.slice(0, j + 1) === this.base + '#') { // base-relative
+        if (canSplit) {
+          return ':' + uri.slice(j + 1) // assume deafult ns is local
+        } else {
+          return '<#' + uri.slice(j + 1) + '>'
+        }
+      }
+*/
+      if (canSplit) {
+        var localid = uri.slice(j + 1)
+        var namesp = uri.slice(0, j + 1)
+        if (this.defaultNamespace && this.defaultNamespace === namesp &&
+            this.flags.indexOf('d') < 0) { // d -> suppress default
+          if (this.flags.indexOf('k') >= 0 && this.keyords.indexOf(localid) < 0) {
+            return localid
+          }
+          return ':' + localid
+        }
+        // this.checkIntegrity() //  @@@ Remove when not testing
+        var prefix = this.prefixes[namesp]
+        if (!prefix) prefix = this.makeUpPrefix(namesp)
+        if (prefix) {
+          this.namespacesUsed[namesp] = true
+          return prefix + ':' + localid
+        }
+      // Fall though if can't do qname
+      }
+    }
+
+    return this.explicitURI(uri).split('<').pop().split('>')[0]
+  }
+
+  // /////////////////////////// Quad store serialization
 }
 
 // String escaping utilities
